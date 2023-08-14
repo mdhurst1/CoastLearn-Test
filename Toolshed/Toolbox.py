@@ -279,7 +279,49 @@ def savi_index(im1, im2, cloud_mask):
     red = im2.reshape(im2.shape[0] * im2.shape[1])
     # compute the normalised difference index
     temp = np.divide(nir[~vec_mask] - red[~vec_mask],
-                     nir[~vec_mask] + red[~vec_mask] + 0.9) * (1 + 0.9)
+                     nir[~vec_mask] + red[~vec_mask] + 0.5) * (1 + 0.5)
+    vec_nd[~vec_mask] = temp
+    # reshape into image
+    im_nd = vec_nd.reshape(im1.shape[0], im1.shape[1])
+    return im_nd
+
+
+def rbnd_index(im1, im2, im3, cloud_mask):
+    """
+    Computes soil adjusted vegetation index on 2 bands (2D), given a cloud mask (2D).
+
+    FM 2022
+
+    Arguments:
+    -----------
+    im1: np.array
+        first image (2D) with which to calculate the ND index (should be NIR band)
+    im2: np.array
+        second image (2D) with which to calculate the ND index (should be Red band)
+    im3: np.array
+        third image (2D) with which to calculate the ND index (should be Blue band)
+    
+    cloud_mask: np.array
+        2D cloud mask with True where cloud pixels are
+
+    Returns:    
+    -----------
+    im_nd: np.array
+        Image (2D) containing the ND index
+        
+    """
+
+    # reshape the cloud mask
+    vec_mask = cloud_mask.reshape(im1.shape[0] * im1.shape[1])
+    # initialise with NaNs
+    vec_nd = np.ones(len(vec_mask)) * np.nan
+    # reshape the images
+    nir =  im1.reshape(im1.shape[0] * im1.shape[1])
+    red =  im2.reshape(im2.shape[0] * im2.shape[1])
+    blue = im3.reshape(im3.shape[0] * im3.shape[1])
+    # compute the normalised difference index
+    temp = np.divide(nir[~vec_mask] - (red[~vec_mask] + blue[~vec_mask]),
+                     nir[~vec_mask] + (red[~vec_mask] + blue[~vec_mask]))
     vec_nd[~vec_mask] = temp
     # reshape into image
     im_nd = vec_nd.reshape(im1.shape[0], im1.shape[1])
@@ -1672,13 +1714,13 @@ def TZValues(int_veg, int_nonveg):
 def QuantifyErrors(sitename, SatGDF, DatesCol,ValidDict,TransectIDs):
     
     
-    errordata = []
-    errordates = []
-    Sdates = SatGDF[DatesCol].unique()
-    
     filepath = os.path.join(os.getcwd(), 'Data', sitename, 'validation')
     if os.path.isdir(filepath) is False:
         os.mkdir(filepath)
+        
+    errordata = []
+    errordates = []
+    Sdates = SatGDF[DatesCol].unique()
     
     for Sdate in Sdates:
         valsatdist = []
@@ -1869,7 +1911,7 @@ def GetWaterElevs(settings, dates_sat):
 
     Returns
     -------
-    TYPE
+    tides_sat : TYPE
         DESCRIPTION.
 
     '''
@@ -1879,22 +1921,39 @@ def GetWaterElevs(settings, dates_sat):
     tide_data = pd.read_csv(tidefilepath, parse_dates=['date'])
     dates_ts = [_.to_pydatetime() for _ in tide_data['date']]
     tides_ts = np.array(tide_data['tide'])
+
     
-    # # get the tide level corresponding to the time of sat image acquisition
-    # dates_sat = []
-    # for i in range(len(satdatetime)):
-    #     dates_sat_str = satdatetime
-    #     dates_sat.append(datetime.strptime(dates_sat_str, '%Y-%m-%d %H:%M:%S.%f'))
-    
-    tide_sat = []
+    tides_sat = []
     def find(item, lst):
         start = 0
         start = lst.index(item, start)
         return start
-    for i,date in enumerate(dates_sat):
-        tide_sat.append(tides_ts[find(min(item for item in dates_ts if item > date), dates_ts)])
     
-    return tide_sat
+    # Previously found first following tide time, but incorrect when time is e.g. only 1min past the hour
+    # for i,date in enumerate(dates_sat):
+    #     tides_sat.append(tides_ts[find(min(item for item in dates_ts if item > date), dates_ts)])
+    
+    # Interpolate tide using number of minutes through the hour the satellite image was captured
+    for i,date in enumerate(dates_sat):
+        # find preceding and following hourly tide levels and times
+        time_1 = dates_ts[find(min(item for item in dates_ts if item > date-timedelta(hours=1)), dates_ts)]
+        tide_1 = tides_ts[find(min(item for item in dates_ts if item > date-timedelta(hours=1)), dates_ts)]
+        time_2 = dates_ts[find(min(item for item in dates_ts if item > date), dates_ts)]
+        tide_2 = tides_ts[find(min(item for item in dates_ts if item > date), dates_ts)]
+        
+        # Find time difference of actual satellite timestamp (next hour minus sat timestamp)
+        timediff = time_2 - date
+        # Get proportion of time through the hour (e.g. 59mins past = 0.01)
+        timeprop = timediff / timedelta(hours=1)
+        
+        # Get difference between the two tidal stages
+        tidediff = (tide_2 - tide_1) / 2
+        tide_sat = tide_2 - (tidediff * timeprop)
+        
+        tides_sat.append(tide_sat)
+        print(tide_sat)
+    
+    return tides_sat
 
 
 def ExtendLine(LineGeom, dist):

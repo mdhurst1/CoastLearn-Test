@@ -675,7 +675,7 @@ def SatRegress(sitename,SatGDF,DatesCol,ValidDict,TransectIDs,PlotTitle):
     ax.set_facecolor('#ECEAEC')
     
     # line through the origin as a guide for error
-    plt.plot([0,1000],[0,1000],c='k',lw=0.8,linestyle=':')
+    plt.plot([-100,1000],[-100,1000],c='b',lw=0.5,linestyle='-', zorder=3)
     
     valsrtclean = []
     satsrtclean = []
@@ -694,10 +694,21 @@ def SatRegress(sitename,SatGDF,DatesCol,ValidDict,TransectIDs,PlotTitle):
             valsrtclean.append(vallistclean)
             satsrtclean.append(satlistclean)
 
+    maxlim = max( max(max(satsrt)), max(max(valsrt)) )
+    minlim = min( min(min(satsrt)), min(min(valsrt)) )
+    majort = np.arange(-100,maxlim+200,100)
+    minort = np.arange(-100,maxlim+200,20)
+    ax.set_xticks(majort)
+    ax.set_yticks(majort)
+    ax.set_xticks(minort, minor=True)
+    ax.set_yticks(minort, minor=True)
+    ax.grid(which='major', color='#BBB4BB', alpha=0.5, zorder=0)
+    # ax.grid(which='minor', color='#BBB4BB', alpha=0.2, zorder=0)
+    
     cmap = cm.get_cmap('magma_r',len(valsrtclean))
     for i in range(len(valsrtclean)): 
         # plot scatter of validation (observed) vs satellite (predicted) distances along each transect
-        plt.scatter(valsrtclean[i], satsrtclean[i], color=cmap(i), s=3, alpha=0.3, edgecolors='none', zorder=0)
+        plt.scatter(valsrtclean[i], satsrtclean[i], color=cmap(i), s=2, alpha=0.4, edgecolors='none', zorder=2)
         # linear regression
         X = np.array(valsrtclean[i]).reshape((-1,1))
         y = np.array(satsrtclean[i])
@@ -707,7 +718,7 @@ def SatRegress(sitename,SatGDF,DatesCol,ValidDict,TransectIDs,PlotTitle):
         valfit = np.linspace(0,round(np.max(valsrtclean[i])),len(valsrtclean[i])).reshape((-1,1))
         satfit = model.predict(valfit)
 
-        plt.plot(valfit,satfit, c=cmap(i), alpha=0.6, linewidth=1.2, label=(satdateclean[i]+' R$^2$ = '+str(round(r2,2))))
+        plt.plot(valfit,satfit, c=cmap(i), alpha=0.8, linewidth=1.2, label=(satdateclean[i]+' R$^2$ = '+str(round(r2,2))), zorder=3)
 
     plt.legend(ncol=1)
     
@@ -722,23 +733,11 @@ def SatRegress(sitename,SatGDF,DatesCol,ValidDict,TransectIDs,PlotTitle):
     valfit = np.linspace(0,round(np.max(valfull)),len(valfull)).reshape((-1,1))
     satfit = model.predict(valfit)
 
-    plt.plot(valfit,satfit, c='#7A7A7A', linestyle='--', linewidth=1.2)
-    plt.text(valfit[-1],satfit[-1],'R$^2$ = '+str(round(r2,2)), c='#7A7A7A')
+    plt.plot(valfit,satfit, c='#A5A5AF', linestyle='--', linewidth=1.2, zorder=3)
+    plt.text(valfit[-1],satfit[-1],'R$^2$ = '+str(round(r2,2)), c='#7A7A7A', zorder=3)
 
-
-    maxlim = max( max(max(satsrt)), max(max(valsrt)) )
-    minlim = min( min(min(satsrt)), min(min(valsrt)) )
-    majort = np.arange(-100,maxlim+150,100)
-    minort = np.arange(-100,maxlim+150,20)
-    ax.set_xticks(majort)
-    ax.set_yticks(majort)
-    ax.set_xticks(minort, minor=True)
-    ax.set_yticks(minort, minor=True)
-    ax.grid(which='major', color='#BBB4BB', alpha=0.5)
-    ax.grid(which='minor', color='#BBB4BB', alpha=0.2)
-
-    plt.xlim(0,maxlim+150)
-    plt.ylim(0,maxlim)
+    plt.xlim(-20,round(maxlim)+200)
+    plt.ylim(-20,maxlim)
     
     plt.xlabel('Validation Veg Edge cross-shore distance (m)')
     plt.ylabel('Satellite Veg Edge cross-shore distance (m)')
@@ -748,7 +747,8 @@ def SatRegress(sitename,SatGDF,DatesCol,ValidDict,TransectIDs,PlotTitle):
     figpath = os.path.join(filepath,sitename+'_Validation_Satellite_Distances_LinReg_'+str(TransectIDs[0])+'to'+str(TransectIDs[1])+'.png')
     plt.savefig(figpath)
     print('figure saved under '+figpath)
-    
+    mpl.rcParams.update({'font.size':7})
+
     plt.show()
         
     
@@ -801,6 +801,10 @@ def ClusterRates(sitename, TransectInterGDF, Sloc, Nloc):
 
 def MultivariateMatrix(sitename, TransectInterGDF, Sloc, Nloc):
     
+    filepath = os.path.join(os.getcwd(), 'Data', sitename, 'plots')
+    if os.path.isdir(filepath) is False:
+        os.mkdir(filepath)
+        
     ## Multivariate Plot
     # Subset into south and north transects
     RateArrayS = TransectInterGDF.iloc[Sloc[0]:Sloc[1]]
@@ -890,3 +894,117 @@ def MultivariateMatrix(sitename, TransectInterGDF, Sloc, Nloc):
     
     return
     
+
+def WPErrors(filepath, sitename, CSVpath):
+    """
+    Generate plot error values associated with different Weighted Peaks thresholding values.
+    FM Aug 2023
+
+    Parameters
+    ----------
+    filepath : str
+        Filepath to save figure to.
+    sitename : str
+        Name of site of interest.
+    CSVpath : str
+        Filepath to Weighted Peaks RMSE values stored in CSV.
+
+    Returns
+    -------
+    None.
+
+    """
+    fig, ax = plt.subplots(figsize=(3.31, 3.31), dpi=300)  
+    ax2 = ax.twiny()
+    
+    #read in CSV of errors
+    errorDF = pd.read_csv(CSVpath)
+    # sort sat names alphabetically
+    errorDF = pd.concat([errorDF['veg'], errorDF['nonveg'], errorDF.iloc[:,2:].reindex(sorted(errorDF.columns[2:]), axis=1)], axis=1)
+    
+    # read in names of satellites from headings
+    uniquesats = list(errorDF.columns[2:])
+    colors = plt.cm.Blues(np.linspace(0.4, 1, len(uniquesats)))
+    
+    # for each satellite name
+    for i,sat in enumerate(uniquesats):
+        # plot graph of errors and max value of each sat as diamond
+        ax2.plot(errorDF['nonveg'][errorDF[sat]==min(errorDF[sat])], errorDF[sat][errorDF[sat]==min(errorDF[sat])], marker='d', color=colors[i], markeredgecolor='r', markeredgewidth=0.5, markersize=5, zorder=5)
+        ax.plot(errorDF['veg'], errorDF[sat], marker='o', markersize=2, color=colors[i], linewidth=1, label=sat)
+    
+    
+    ax.set_xticks(errorDF['veg'],minor=True)
+    ax.set_xticks(list(errorDF['veg'])[0::2], major=True)
+    ax2.set_xticks(errorDF['nonveg'],minor=True)
+    ax2.set_xticks(list(errorDF['nonveg'])[0::2], major=True)
+    # ax2.invert_axis()
+    ax.set_xlim(min(errorDF['veg'])-0.05, max(errorDF['veg'])+0.05)
+    ax2.set_xlim(max(errorDF['nonveg'])+0.05, min(errorDF['nonveg'])-0.05)
+    
+    ax.grid(which='major', color='#BBB4BB', alpha=0.5)
+    ax.grid(which='minor', color='#BBB4BB', alpha=0.2)
+    
+    ax.set_xlabel('$\omega_{veg}$')
+    ax2.set_xlabel('$\omega_{nonveg}$')
+    ax.set_ylabel('RMSE (m)')
+    
+    ax.legend(loc='upper left',ncol=2)
+    plt.tight_layout()
+    mpl.rcParams.update({'font.size':7})
+    
+    figpath = os.path.join(filepath,sitename+'_VedgeSat_WP_Errors.png')
+    plt.savefig(figpath)
+    print('figure saved under '+figpath)
+    
+    plt.show()
+    
+    return
+
+
+def TideHeights(VegGDF, CSVpath):
+    """
+    Generate plot of RMSE values vs tide heights for satellite veg edges in chosen transect range.
+    FM Aug 2023
+
+    Parameters
+    ----------
+    VegGDF : GeoDataFrame
+        GeoDataFrame generated from reading in the sat-derived veg edge shapefile.
+    CSVpath : str
+        Filepath to errors CSV generated with Toolbox.QuantifyErrors().
+
+    Returns
+    -------
+    None.
+
+    """
+    ErrorCSV = pd.read_csv(CSVpath)
+    # Remove 'Total' row
+    ErrorCSV.drop(ErrorCSV[ErrorCSV['Date'] == 'Total'].index, axis=0, inplace=True)
+    
+    VegLines = VegGDF.groupby(['dates']).max()
+    
+    Tides = []
+    for date in ErrorCSV['Date']:
+        Tides.append(VegLines.loc[date]['tideelev'])
+    
+    ErrorCSV['Tides'] = Tides
+    
+    print(ErrorCSV)
+    
+    plt.scatter(ErrorCSV['RMSE'], ErrorCSV['Tides'])
+    x = ErrorCSV['RMSE']
+    msat, csat = np.polyfit(x,ErrorCSV['Tides'],1)
+    polysat = np.poly1d([msat, csat])
+    xx = np.linspace(x.min(), x.max(), 100)
+    plt.plot(xx, polysat(xx), '--', color='k')
+             
+    plt.xlabel('RMSE (m)')
+    plt.ylabel('Tide height (m)')
+    plt.show()
+    
+    return
+    
+
+
+
